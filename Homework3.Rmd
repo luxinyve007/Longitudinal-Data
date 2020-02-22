@@ -1,0 +1,355 @@
+---
+title: "Homework 3"
+author: "Xinyue Lu"
+date: "2019/11/24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(lme4)
+BMACS <- read.csv("D:/luxinyve/00 Longitudinal Data/homework1/BMACS.csv",header=T)
+str(BMACS)
+```
+
+### 1. Piece-wise linear mixed-effects models
+First, without covariates, we consider some simple piece-wise linear mixed-effects models of post-infection CD4 as a function of time since HIV-infection. Suppose that we pick two interior knots at t = 2, 4 years after HIV infection. Give your ﬁnal chosen model, and estimates and 95% CI’s for the ﬁxed effects under the following three scenarios. 
+
+$$ Y_{ij} = βX_{ij} +b_iZ_{ij} +\epsilon_{ij}$$
+
+$Y_{ij}$: Post-infection CD4
+β: The ﬁxed effect
+$b_i$: The random effect for subject i. 
+$X_{ij},Z_{ij}$: Covariate matrices for subject i. 
+$\epsilon_{ij}$ ∼ N(0,σ2) is the measurement error.
+
+### 1.1 local constant ﬁt
+Using the basis functions B1(t) = 1[t<2], B2(t) = 1[2≤t<4] and B3(t) = 1[4≤t], with random-eﬀects for each of the basis functions; 
+
+Model:
+$$ Y_{ij} =(β_1 +b_{1i})B_1(t_{ij})+(β_2 +b_{2i})B_2(t_{ij})+(β_3 +b_{3i})B_3(t_{ij})+\epsilon_{ij} $$ 
+
+```{r}
+time=BMACS$Time
+B1<-function(t) I(t<2)
+B1=as.numeric(B1(time))
+B2<-function(t) I((t<4)& (t>=2))
+B2=as.numeric(B2(time))
+B3<-function(t) I(t>=4)
+B3=as.numeric(B3(time))
+B4<-function(t) t*I(t<2)
+B4=as.numeric(B4(time))
+B5<-function(t) t*I((t<4)& (t>=2))
+B5=as.numeric(B5(time))
+B6<-function(t) t*I(t>=4)
+B6=as.numeric(B6(time))
+b1=1
+b2=function(t) return(t)
+b2=as.numeric(b2(time))
+b3=function(t) return(ifelse(t>2, t-2, 0))
+b3=as.numeric(b3(time))
+b4=function(t) return(ifelse(t>4, t-4, 0))
+b4=as.numeric(b4(time))
+
+data1<-cbind(BMACS, B1,B2,B3, B4,B5,B6,b1,b2,b3,b4)
+model.1.1<-lmer(CD4~ B1+B2+B3 -1 +(B1+B2+B3 -1 |ID), data= data1)
+summary(model.1.1)
+
+```
+
+Use Bootstrap to compute 95% confidence interval.
+
+```{r}
+set.seed(1) 
+unique.ID=unique(BMACS$ID) 
+nID=length(unique.ID) 
+bootsample=function(){ 
+  resample.ID=sample(unique.ID,nID,replace=T) 
+  do.call("rbind",lapply(1:nID,function(i) subset(BMACS,ID==resample.ID[i]))) 
+  } 
+bootstrap.1.1=sapply(1:200,function(o){ 
+  b=bootsample() 
+  t=b$Time 
+  B1<-function(t) I(t<2) 
+  B1=as.numeric(B1(t)) 
+  B2<-function(t) I((t<4)& (t>=2)) 
+  B2=as.numeric(B2(t)) 
+  B3<-function(t) I(t>=4) 
+  B3=as.numeric(B3(t))
+  b<-cbind(b, B1,B2,B3) 
+  boot.1.1<-lmer(CD4~ B1+B2+B3 -1 +(B1+B2+B3 -1 |ID), data= b) 
+  return(fixef(boot.1.1))
+  }) 
+
+
+bootstrap.1.1=as.matrix(bootstrap.1.1) 
+upper95=apply(bootstrap.1.1,1,quantile,0.975) 
+lower95=apply(bootstrap.1.1,1,quantile,0.025) 
+estimate=fixef(model.1.1)
+cbind(estimate,lower95,upper95)
+
+```
+
+
+### 1.2 local linear ﬁt without assuming continuity at the knots.
+
+Three separate straight lines at t < 2, 2 ≤ t < 4 and 4 ≤ t, with random-effects for the intercepts only.
+
+Model:
+$$ Y_{ij} =(β_1 +b_{1i})B_1(t_{ij})+(β_2 +b_{2i})B_2(t_{ij})+(β_3 +b_{3i})B_3(t_{ij})+β_4B_4(t_{ij})+β_5B_5(t_{ij})+β_6B_6(t_{ij})+\epsilon_{ij} $$ 
+
+The model fit 3 lines with own intercept and slop, and the knots are not forced to beconnected. Only the intercept terms have random eﬀect.
+
+```{r}
+model.1.2<-lmer(CD4~ B1+B2+B3 -1 +B4 + B5 + B6 +(B1+B2+B3 -1 |ID), data= data1)
+summary(model.1.2)
+
+set.seed(1)
+bootstrap.1.2=sapply(1:200,function(o){
+  b=bootsample()
+  t=b$Time
+  B1<-function(t) I(t<2)
+  B1=as.numeric(B1(t))
+  B2<-function(t) I((t<4)& (t>=2))
+  B2=as.numeric(B2(t))
+  B3<-function(t) I(t>=4)
+  B3=as.numeric(B3(t))
+  B4<-function(t) t*I(t<2)
+  B4=as.numeric(B4(t))
+  B5<-function(t) t*I((t<4)& (t>=2))
+  B5=as.numeric(B5(t))
+  B6<-function(t) t*I(t>=4)
+  B6=as.numeric(B6(t))
+  b<-cbind(b, B1,B2,B3,B4,B5,B6)
+  fit1.2<-lmer(CD4~ B1+B2+B3 -1 +B4 + B5 + B6 +(B1+B2+B3 -1 |ID), data= b)
+  return(fixef(fit1.2))
+})
+bootstrap.1.2=as.matrix(bootstrap.1.2)
+estimate=fixef(model.1.2)
+upper95=apply(bootstrap.1.2,1,quantile,0.975)
+lower95=apply(bootstrap.1.2,1,quantile,0.025)
+cbind(estimate,lower95,upper95)
+
+```
+
+
+### 1.3 local linear ﬁt with continuity at the knots
+
+Using B1(t) = 1, B2(t) = t, B3(t) = (t−2)+ and B4(t) = (t−4)+, with random-effects for each of the basis functions. 
+
+Model:
+
+$$ Y_{ij} =β_1 +b_{1i}+(β_2 +b_{2i})t_{ij}+(β_3 +b_{3i})(t_{ij}-2)^++(β_4+b_{4i})(t_{ij}-4)^++\epsilon_{ij} $$
+
+```{r}
+model.1.3<-lmer(CD4~b2+b3+b4+(b2+b3+b4|ID), data= data1)
+summary(model.1.3)
+```
+
+
+```{r}
+set.seed(1)
+bootstrap.1.3=sapply(1:200,function(o){
+  b=bootsample()
+  t=b$Time
+  B2=function(t) return(t)
+  B2=as.numeric(B2(t))
+  B3=function(t) return(ifelse(t>2, t-2, 0))
+  B3=as.numeric(B3(t))
+  B4=function(t) return(ifelse(t>4, t-4, 0))
+  B4=as.numeric(B4(t))
+  cd41.3<-cbind(b, B2,B3,B4)
+  fit1.3<-lmer(CD4~B2+B3+B4+(B2+B3+B4|ID), data= b)
+  return(fixef(fit1.3))
+})
+bootstrap.1.3=as.matrix(bootstrap.1.3)
+estimate=fixef(model.1.3)
+upper95=apply(bootstrap.1.3,1,quantile,0.975)
+lower95=apply(bootstrap.1.3,1,quantile,0.025)
+cbind(estimate,lower95,upper95)
+```
+
+
+### 1.4 Interpretations and clinical conclusions
+
+What are your interpretations and clinical conclusions from the results obtained in #1.1, #1.2 and #1.3?
+
+```{r}
+anova(model.1.1,model.1.2,model.1.3,refit=F) 
+```
+
+Model.1.3 is the best model because its AIC is the smallest.
+
+In conclusion, patients' post CD4 level decreases as time passes by since infection. The decreasing speed is the fastest in the ﬁrst two years after infection, becomes slower in the 2nd-4th year, and even slower after the 4th year.
+
+
+### 2. Extend the analysis in #1 by including smoking status as the covariate. 
+In this case, you will consider the varying-coeffcient mixed-eﬀects models of the form
+
+$$ Y_{ij} =β_0(t) +b_{0i}(t)+β_1(t)X_i(t)+b_{1i}(t)X_i(t)+\epsilon_t$$
+where Xi(t) is the smoking status, b0i(t) and b1i(t) are subject-speciﬁc deviation curves and $\epsilon_t$ is the independent measurement error. 
+
+Give your ﬁnal chosen model, and estimates and 95% CI’s for the ﬁxed eﬀects under the following three scenarios:
+
+### 2.1 Local constant ﬁt
+Local constant ﬁt using the basis functions in #1.1 for β0(t), b0i(t), β1(t) and b1i(t); 
+
+Model:
+$$ Y_{ij} =(β_1+b_{1i})B_1t_{ij}+(β_2 +b_{2i})B_2t_{ij}+(β_3 +b_{3i})B_3t_{ij}+β_4B_1t_{ij}S_{ij}+β_5B_2t_{ij}S_{ij}+β_6B_3t_{ij}S_{ij}+\epsilon_{ij} $$
+
+#yij =β1B1(tij)+β2B2(tij)+β3B3(tij)+ (β4 +b4i)B1(tij)Sij +(β5 +b5i)B2(tij)Sij +(β6 +b6i)B3(tij)Sij +ij (2.1.2)
+#yij =(β1 +b1i)B1(tij)+(β2 +b2i)B2(tij)+(β3 +b3i)B3(tij)+ (β4 +b4i)B1(tij)Sij +(β5 +b5i)B2(tij)Sij +(β6 +b6i)B3(tij)Sij +ij 
+
+```{r}
+smoke=BMACS$Smoke
+S1=B1*smoke
+S2=B2*smoke
+S3=B3*smoke
+S4=B4*smoke
+S5=B5*smoke
+S6=B6*smoke
+s1=b1*smoke
+s2=b2*smoke
+s3=b3*smoke
+s4=b4*smoke
+
+data2=cbind(data1,S1,S2,S3,S4,S5,S6,s1,s2,s3,s4)
+model.2.1<-lmer(CD4~-1+B1+B2+B3+S1+S2+S3+(-1+B1+B2+B3|ID), data= data2)
+summary(model.2.1)
+```
+
+Bootstrap
+
+```{r}
+set.seed(1)
+bootstrap.2.1=sapply(1:200,function(o){
+  b=bootsample()
+  t=b$Time
+  s=b$Smoke
+  B1<-function(t) I(t<2)
+  B1=as.numeric(B1(t))
+  B2<-function(t) I((t<4)& (t>=2))
+  B2=as.numeric(B2(t))
+  B3<-function(t) I(t>=4)
+  B3=as.numeric(B3(t))
+  S1=B1*s
+  S2=B2*s
+  S3=B3*s
+  cd42.1<-cbind(b, B1,B2,B3,S1,S2,S3)
+  fit2.1<-lmer(CD4~-1+B1+B2+B3+S1+S2+S3+(-1+B1+B2+B3|ID), data= b)
+  return(fixef(fit2.1))
+})
+bootstrap.2.1=as.matrix(bootstrap.2.1)
+estimate=fixef(model.2.1)
+upper95=apply(bootstrap.2.1,1,quantile,0.975)
+lower95=apply(bootstrap.2.1,1,quantile,0.025)
+cbind(estimate,lower95,upper95)
+```
+
+###2.2 Local linear ﬁt without assuming continuity at the knots
+Local linear ﬁt without assuming continuity at the knots for β0(t), b0i(t), β1(t) and b1i(t), i.e., using the basis functions as in #1.2; 
+
+Model:
+$$ Y_{ij} =\sum^6_{k=1}(β_k+b_{ki})B_kt_{kj}+\sum^{12}_{k=7}β_kB_{k-6}(t_{kj})S_{ij}+\epsilon_{ij} $$
+```{r}
+model.2.2<-lmer(CD4~-1+B1+B2+B3+B4+B5+B6+S1+S2+S3+S4+S5+S6+ (-1+B1+B2+B3+B4+B5+B6|ID), data= data2) 
+summary(model.2.2)
+```
+
+Bootstrap
+```{r}
+set.seed(1)
+bootstrap.2.2=sapply(1:100,function(o){
+  b=bootsample()
+  t=b$Time
+  s=b$Smoke
+  B1<-function(t) I(t<2)
+  B1=as.numeric(B1(t))
+  B2<-function(t) I((t<4)& (t>=2))
+  B2=as.numeric(B2(t))
+  B3<-function(t) I(t>=4)
+  B3=as.numeric(B3(t))
+  B4<-function(t) t*I(t<2)
+  B4=as.numeric(B4(t))
+  B5<-function(t) t*I((t<4)& (t>=2))
+  B5=as.numeric(B5(t))
+  B6<-function(t) t*I(t>=4)
+  B6=as.numeric(B6(t))
+  S1=B1*s
+  S2=B2*s
+  S3=B3*s
+  S4=B4*s
+  S5=B5*s
+  S6=B6*s
+  cd42.2<-cbind(b, B1,B2,B3,B4,B5,B6,S1,S2,S3,S4,S5,S6)
+  fit2.2<-lmer(CD4~-1+B1+B2+B3+B4+B5+B6+S1+S2+S3+S4+S5+S6+
+                 (-1+B1+B2+B3+B4+B5+B6|ID), data= b)
+  return(fixef(fit2.2))
+})
+bootstrap.2.2=as.matrix(bootstrap.2.2)
+estimate=fixef(model.2.2)
+upper95=apply(bootstrap.2.2,1,quantile,0.975)
+lower95=apply(bootstrap.2.2,1,quantile,0.025)
+cbind(estimate,lower95,upper95)
+
+```
+
+
+###2.3 Local linear ﬁt with continuity at the knots
+Local linear ﬁt with continuity at the knots for β0(t), b0i(t), β1(t) and b1i(t), i.e., using the basis functions as in #1.3. 
+
+Model:
+$$ Y_{ij} =\sum^4_{k=1}(β_k+b_{ki})B_k(t_{kj})+\sum^{8}_{k=5}β_kB_{k-4}(t_{kj})S_{ij}+\epsilon_{ij} $$
+Where
+$$B_1(t)=1,B_2(t)= t,B_3(t)=(t−2)^+,B_4(t)=(t−4)^+ $$
+```{r}
+model.2.3<-lmer(CD4~b2+b3+b4+s1+s2+s3+s4+ (b2+b3+b4|ID), data= data2) 
+summary(model.2.3)
+```
+
+Bootstrap
+
+```{r}
+set.seed(1)
+bootstrap.2.3=sapply(1:200,function(o){
+  b=bootsample()
+  t=b$Time
+  s=b$Smoke
+  B2=function(t) return(t)
+  B2=as.numeric(B2(t))
+  B3=function(t) return(ifelse(t>2, t-2, 0))
+  B3=as.numeric(B3(t))
+  B4=function(t) return(ifelse(t>4, t-4, 0))
+  B4=as.numeric(B4(t))
+  S1=s
+  S2=B2*s
+  S3=B3*s
+  S4=B4*s
+  cd42.3<-cbind(b, B2,B3,B4,S1,S2,S3,S4)
+  fit2.3<-lmer(CD4~B2+B3+B4+S1+S2+S3+S4+
+                 (B2+B3+B4|ID), data= b)
+  return(fixef(fit2.3))
+})
+bootstrap.2.3=as.matrix(bootstrap.2.3)
+estimate=fixef(model.2.3)
+upper95=apply(bootstrap.2.3,1,quantile,0.975)
+lower95=apply(bootstrap.2.3,1,quantile,0.025)
+cbind(estimate,lower95,upper95)
+```
+
+###2.4 Interpretations and clinical conclusions
+What are your interpretations and clinical conclusions about the eﬀects of smoking status obtained in #2.1, #2.2 and #2.3?
+
+```{r}
+anova(model.2.1,model.2.2,model.2.3,refit=F)
+```
+
+Model.2.2 is the best one because it has the smallest AIC.
+We can see from the model that smokers' post-CD4 level decreaseS faster then non-smokers in all time interval. The relationship between post-CD4 cell level and time is the same as the conclusion in 1.4.
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
